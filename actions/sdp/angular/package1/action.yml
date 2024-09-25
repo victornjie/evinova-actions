@@ -1,0 +1,55 @@
+name: Build Merlin api
+
+
+inputs:
+  environment:
+    required: true
+    type: string
+  tag:
+    required: true
+    type: string
+  package:
+    required: true
+    type: string
+
+runs:
+  using: composite
+
+  steps:
+    - name: Checkout
+      uses: actions/checkout@v3
+
+    - name: Set up Node
+      uses: actions/setup-node@v3
+      with:
+        node-version: '20.11.1'
+
+    - name: Build Artifact
+      shell:
+      run: |
+        version=${{ inputs.tag }}
+        tag=${{ inputs.tag }}
+        env_prefix=$(echo ${{ inputs.environment }} | awk '{print tolower($0)}')
+        echo "ENV PREFIX => $env_prefix"
+        if [[ $env_prefix == 'ppt' ]]; then
+          env_prefix=preprod; # Set PPT -> PREPROD
+        fi
+        echo "Title => $title"
+        echo "Environment => $ENV_NAME"
+        sed -i "s|VERSION|$version|g" src/environments/environment.$env_prefix.ts
+        sed -i "s/TITLE/$title/g" src/environments/environment.$env_prefix.ts
+        sed -i "s/ANALYTICS_HOST/$analytics_host/g" src/environments/environment.$env_prefix.ts
+        # Replace environment file with appropriate env_prefix before build.
+        cp -rf src/environments/environment.$env_prefix.ts src/environments/environment.ts
+        repository= ${{ env.REPOSITORY}}
+        echo "repository => $repository"
+
+        npm install -q
+        CI=false npm run build
+        tar czvf ${{ inputs.package }} build
+
+    - name: Upload Artifact
+      uses: actions/upload-artifact@v3
+      with:
+        name: ${{ inputs.package }}
+        path: ${{ inputs.package }}

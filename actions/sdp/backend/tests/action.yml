@@ -1,0 +1,96 @@
+name: Test Merlin API
+
+
+inputs:
+  environment:
+    required: true
+    type: string
+
+
+runs:
+  using: composite
+
+  steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+
+      - name: Cache Maven
+        uses: actions/cache@v2
+        with:
+          path: ~/.m2/repository
+          key: ${{ runner.os }}-maven-${{ hashFiles('**/pom.xml') }}
+          restore-keys: |
+            ${{ runner.os }}-maven-
+
+      - shell: bash
+        run: |
+          export TESTCONTAINERS_RYUK_DISABLED=true
+          mvn test -DskipITs=true --settings settings.xml
+
+#  it-test:
+#    name: Integration Test
+#    runs-on: ubuntu-latest
+#    container:
+#      image: maven:3.8.5-openjdk-17
+#
+#    steps:
+#      - name: Checkout
+#        uses: actions/checkout@v3
+#
+#      - name: Cache Maven
+#        uses: actions/cache@v2
+#        with:
+#          path: ~/.m2/repository
+#          key: ${{ runner.os }}-maven-${{ hashFiles('**/pom.xml') }}
+#          restore-keys: |
+#            ${{ runner.os }}-maven-
+#
+#      - shell: bash
+#        run: |
+#          export TESTCONTAINERS_RYUK_DISABLED=true
+#          mvn test -DskipUTs=true --settings settings.xml
+
+        #  sonarqube-test:
+        #    name: SonarQube Analysis
+        #    runs-on: ubuntu-latest
+        #    container:
+        #      image: maven:3.8.5-openjdk-17
+        #
+        #    steps:
+        #      - name: Checkout
+        #        uses: actions/checkout@v3
+        #
+        #      - name: Cache Maven
+        #        uses: actions/cache@v2
+        #        with:
+        #          path: ~/.m2/repository
+        #          key: ${{ runner.os }}-maven-${{ hashFiles('**/pom.xml') }}
+        #          restore-keys: |
+        #            ${{ runner.os }}-maven-
+
+        #      - name: SonarQube Scan
+        #        uses: sonarsource/sonarqube-scan-action@master
+        #        with:
+        #          projectBaseDir: app/src/main
+        #          args: >
+        #            -Dsonar.projectKey=com.astrazeneca.com:omp
+        #            -Dmaven.test.failure.ignore=true
+        #            -Dsonar.login=${{ secrets.SONAR_TOKEN }}
+        #            -Dsonar.exclusions=app/src/test/**
+        #            -Dsonar.java.binaries=../../target/classes
+        #            -Dsonar.coverage.jacoco.xmlReportPaths=../../target/site/jacoco/jacoco.xml
+        #
+        #      - name: SonarQube Quality Gate check
+        #        uses: sonarsource/sonarqube-quality-gate-action@master
+        #        timeout-minutes: 5
+        #        with:
+        #          scanMetadataReportFile: app/src/main/.scannerwork/report-task.txt
+        #        env:
+        #          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        ### SonarQube - QualityGate Check Action ###
+
+
+#      - shell: bash
+#        run: |
+#          export TESTCONTAINERS_RYUK_DISABLED=true
+#          mvn verify sonar:sonar -Dsonar.login=${SONAR_LOGIN} -DskipTests

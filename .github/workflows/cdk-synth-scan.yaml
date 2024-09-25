@@ -1,0 +1,29 @@
+name: Synth and Scan
+
+on:
+  workflow_call:
+    inputs:
+      synth_prefix:
+        type: string
+        default: ''
+        required: false
+
+permissions:
+    id-token: write
+    contents: read
+
+jobs:
+    synth-scan:
+        runs-on: ubuntu-latest
+        steps:
+            - name: Clone
+              uses: actions/checkout@v3
+            - uses: actions/setup-node@v4
+            - name: Install
+              run: npm i
+            - name: Build
+              run: npm run build
+            - name: Synth
+              run: ${{ inputs.synth_prefix }}npx cdk synth
+            - name: Scanning
+              uses: evinova/evinova-actions/actions/cdk/scan@main

@@ -1,0 +1,22 @@
+# GitHub actions workflow triggered on a pull request's 
+# branch everytime the PR is opened or updated.
+#
+# Verifies the PR's title conforms to the Conventional Commits
+# specification: https://www.conventionalcommits.org/
+name: lint-pr-title
+run-name: 'lint-pr-title: ${{ github.ref }}'
+
+concurrency:
+  # isolate to single PR/branch
+  group: $${ github.repository }}/${{ github.workflow }}/${{ github.ref }}
+  # cancel any in-progress runs for the same PRs
+  cancel-in-progress: true
+
+on:
+  # run on any PRs on any branch
+  pull_request:
+    types: [ opened, reopened, edited, synchronize ]
+
+jobs:
+  lint-pr-title:
+    uses: evinova/evinova-actions/.github/workflows/reusable-lint-pr-title.yaml@v0.0.6

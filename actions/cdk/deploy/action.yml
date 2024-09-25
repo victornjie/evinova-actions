@@ -1,0 +1,43 @@
+name: Deploy CDK App
+description: Deploy a CDK app to a target AWS account
+inputs:
+  account_id:
+    required: true
+  region:
+    required: true
+  deploy_role_name:
+    default: GithubActionsRole
+  setup_project:
+    default: true
+  cmd_prefix:
+    default: ""
+  cmd_args:
+    default: ""
+  stack_names:
+    default: '--all'
+  cicd_tools_path:
+    default: "evinova/evinova-actions"
+  cicd_tools_version:
+    default: "feature/custom-actions"
+
+runs:
+  using: "composite"
+  steps:
+    - if: inputs.setup_project == 'true'
+      uses: actions/checkout@v3
+    - if: inputs.setup_project == 'true'
+      uses: actions/setup-node@v4
+    - if: inputs.setup_project == 'true'
+      name: Setup CDK Project
+      run: |
+        npm install
+        npm run build
+      shell: bash
+    - uses: evinova/evinova-actions/actions/aws/assume_role@main
+      with:
+        account_id: ${{ inputs.account_id }}
+        region: ${{ inputs.region }}
+        role_name: ${{ inputs.deploy_role_name }}
+    - name: Deploy Stacks
+      run: ${{ inputs.cmd_prefix }}npx cdk deploy ${{ inputs.stack_names }} ${{ inputs.cmd_args }} --require-approval never
+      shell: bash

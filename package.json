@@ -1,0 +1,26 @@
+{
+  "name": "evinova-actions",
+  "version": "1.1.2",
+  "private": true,
+  "scripts": {
+    "build": "yarn prepare && yarn lint && yarn test-all",
+    "package": "yarn clean && yarn build && mkdir -p ./build && tar -zcvf ./build/evinova-actions.tgz --exclude .DS_Store --exclude node_modules --exclude .history --exclude .husky --exclude '.git*' --exclude 'build/*' .",
+    "clean": "rm -rf ./build ./.venv",
+    "lint": "echo 'TODO lint'",
+    "test": "echo 'TODO test'",
+    "test-all": "echo 'TODO test-all'",
+    "pretty": "npx prettier --write",
+    "app:version": "echo $npm_package_version",
+    "prepare": "husky install"
+  },
+  "devDependencies": {
+    "@commitlint/cli": "^17.7.2",
+    "@commitlint/config-conventional": "^17.7.0",
+    "commit-and-tag-version": "^11.3.0",
+    "devmoji": "^2.3.0",
+    "eslint": "8.35.0",
+    "eslint-config-prettier": "^8.8.0",
+    "husky": "^8.0.3",
+    "prettier": "3.0.3"
+  }
+}

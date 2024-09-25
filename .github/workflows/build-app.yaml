@@ -1,0 +1,33 @@
+name: build-app
+run-name: 'build-app: ${{ github.ref }}'
+
+concurrency:
+  # isolate to single PR/branch
+  # github.ref is in the format:
+  #   - refs/heads/<branch_name> : for branches
+  #   - refs/pull/<pr_number>/merge : for pull requests
+  #   - refs/tags/<tag_name> : , for tags 
+  group: $${ github.repository }}/${{ github.workflow }}/${{ github.ref }}
+  # cancel any in progress runs on for the same 
+  cancel-in-progress: true
+  
+on:
+  workflow_dispatch:
+
+  # run on all pull-requests on all branches
+  pull_request:
+    branches:
+    - '**'
+
+  # run on pushes to any of these branches
+  push:
+    branches:
+    - main
+    - master
+    - develop
+    - release-*
+    - hotfix-*
+
+jobs:
+  build-app:
+    uses: evinova/evinova-actions/.github/workflows/reusable-build-app.yaml@v0.0.6

@@ -1,0 +1,21 @@
+name: Scan a CDK App
+description: Scans a CDK App
+inputs:
+  cfnTemplatePath:
+    required: true
+    default: cdk.out/**/*.template.json
+  cfnLintFailLevel:
+    required: true
+    default: error
+
+runs:
+  using: "composite"
+  steps:
+    - name: Install
+      run: |
+        pip install cfn-lint
+        shopt -s globstar
+      shell: bash
+    - name: Run CFN-lint
+      run: cfn-lint ${{ inputs.cfnTemplatePath }} --non-zero-exit-code ${{ inputs.cfnLintFailLevel }}
+      shell: bash

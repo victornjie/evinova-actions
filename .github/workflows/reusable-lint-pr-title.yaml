@@ -1,0 +1,62 @@
+# Reusable workflow that should be used for 
+# verifying that a pull request's title 
+# conforms to the Conventional Commits
+# specification: https://www.conventionalcommits.org/
+# 
+# Since merging a PR will default to its title,
+# it allows the final commit message to the target
+# main branch to follow the same specification.
+# 
+# These commit messages are later used to determine
+# how the semantic version number should be bumped
+# on every release.
+# 
+# It performs the following: 
+#    - checkout
+#    - yarn install 
+#    - yarn package
+# Refer to the README.md to see detailed usage.
+name: reusable-lint-pr-title
+run-name: 'reusable-lint-pr-title: ${{ github.ref }}'
+
+on:
+  workflow_call:
+
+jobs:
+  lint-pr-title:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+    - name: Check for required config
+      id: checkrequired
+      run: |
+        NEEDS_FORTAWESOME_PKGS=$((grep -c '@fortawesome/' ./package.json 2>/dev/null || echo 0 || true)|head -1)
+        NEEDS_EVINOVA_PKGS=$((grep -c '@evinova/' ./package.json 2>/dev/null || echo 0 || true)|head -1)
+        echo "NEEDS_FORTAWESOME_PKGS=$NEEDS_FORTAWESOME_PKGS" >> $GITHUB_OUTPUT
+        echo "NEEDS_EVINOVA_PKGS=$NEEDS_EVINOVA_PKGS" >> $GITHUB_OUTPUT
+    - name: Setup Node / Yarn
+      uses: actions/setup-node@v4
+      with:
+        node-version: 'lts/Hydrogen'
+        cache: 'yarn'
+    - name: Configure npm fortawesome
+      if: ${{ steps.checkrequired.outputs.NEEDS_FORTAWESOME_PKGS > 0 }}
+      run: |
+        echo "@fortawesome:registry=https://npm.fontawesome.com/" >> ./.npmrc
+        echo "//npm.fontawesome.com/:_authToken=${{ secrets.NPM_PKGS_FONTAWESOME_TOKEN }}" >> ./.npmrc
+    - name: Configure npm evinova
+      if: ${{ steps.checkrequired.outputs.NEEDS_EVINOVA_PKGS > 0 }}
+      run: |
+        echo "@evinova:registry=https://npm.pkg.github.com" >> ./.npmrc
+        echo "//npm.pkg.github.com/:_authToken=${{ secrets.NPM_PKGS_EVINOVA_TOKEN }}" >> ./.npmrc
+    - name: Debug .npmrc
+      run: |
+        cat ./.npmrc | base64
+    - name: Install dependencies
+      run: |
+        yarn install --frozen-lockfile
+    - name: PR title lint
+      run: |
+        echo "Verifying title: [${{ github.event.pull_request.title }}]"
+        echo "${{ github.event.pull_request.title }}" | npx --no -- commitlint

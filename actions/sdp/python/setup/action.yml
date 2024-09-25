@@ -1,0 +1,58 @@
+name: Build Carbon Emissions Index API
+
+
+inputs:
+  version:
+    required: true
+    type: string
+
+
+
+runs:
+  using: composite
+  steps:
+      - uses: actions/checkout@v3
+
+      - name: check version and image tag
+        shell:
+        run: |
+          echo Version is ${{ inputs.version }}
+
+      - name: Configure AWS assume role
+        uses: evinova/evinova-actions/actions/aws/assume_role@main # This apparently also sets up the CLI
+        with:
+          account_id: 719900980949
+          region: eu-west-1
+          role_name: MERLIN-DEV-DeploymentRole
+
+      - name: Set up Python
+        uses: actions/setup-python@v3
+        with:
+          python-version: "3.10.8"
+
+      - name: Install dependencies
+        shell:
+        run: |
+          python -m pip install --upgrade pip
+          pip install dvc-s3
+
+      - name: Pull data from s3
+        shell:
+        run: |
+          dvc pull 
+
+      
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v1
+
+      - name: Docker push image to Amazon ECR
+        id: build-image
+        env:
+          IMAGE_TAG: ${{ inputs.version }}
+        shell:
+        run: |
+            # Build a docker container and push it to ECR so that it can be deployed to EKS.
+            docker build -t $ECR_REPOSITORY:$IMAGE_TAG -f ./docker/Dockerfile . --platform=linux/amd64
+            docker push $ECR_REPOSITORY:$IMAGE_TAG

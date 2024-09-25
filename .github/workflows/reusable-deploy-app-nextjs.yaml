@@ -1,0 +1,97 @@
+# Reusable workflow that should be used for 
+# deploying a release of your Next.js project.
+name: reusable-deploy-app-nextjs
+run-name: 'reusable-deploy-app-nextjs: ${{ github.ref }}'
+
+on:
+ workflow_call:
+    inputs:
+      version_tag:
+        description: 'Version Tag to Deploy'
+        required: true
+        type: string
+      environment:
+        description: 'Target Environment (dev, sit, ppt, prod)'
+        required: true
+        type: string
+      environment_subdomain:
+        description: 'Optional Environment Deployment URL Subdomain'
+        required: false
+        default: ''
+        type: string
+
+jobs:
+  deploy_app:
+    runs-on: ubuntu-latest
+    environment: DEPLOY
+    env:
+      KUBECONFIG: /tmp/env.yaml
+      HELM_REPO_URL: https://nexus.dev.seuit.astrazeneca.com/repository/helm
+      HELM_USER: ${{ vars.HELM_USER }}
+      HELM_PASSWORD: ${{ secrets.HELM_PASSWORD }}
+      CERTIFICATE_ARN: ${{ vars[format('CERTIFICATE_ARN_{0}', inputs.environment)] }}
+      WAF_ARN: ${{ vars[format('WAF_ARN_{0}', inputs.environment)] }}
+      COGNITO_AUTH_IDP: ${{ vars[format('COGNITO_AUTH_IDP_{0}', inputs.environment)] }}
+      APP_URL_PREFIX: ${{ vars.APP_URL_PREFIX }}
+      APP_URL_SUFFIX: ${{ vars.APP_URL_SUFFIX }}
+    steps:
+    - name: Setup
+      id: setup_env
+      env:
+        prefix: ${{ inputs.environment_subdomain }}
+        env_name: ${{ inputs.environment }}
+        default_suffix: 'evinova.astrazeneca.com'
+      run: |
+        REPO_NAME=$(echo ${{ github.repository }}|sed 's,.*/\(.*\),\1,g')
+        suffix=$(if [[ -z "${APP_URL_SUFFIX}" ]]; then echo "${default_suffix}"; else echo "${APP_URL_SUFFIX}"; fi)
+        env_suffix=$(if [[ "${env_name}" == "prod" ]]; then echo "${suffix}"; else echo "${env_name}.${suffix}"; fi)
+        updated_env_suffix=$(if [[ -n "${prefix//[[:blank:]]/}" ]]; then echo "${prefix//[[:blank:]]/}.${env_suffix}"; else echo "${env_suffix}"; fi)
+        TARGET_HOSTNAME="${APP_URL_PREFIX}.${updated_env_suffix}"
+        echo "TARGET_HOSTNAME=$TARGET_HOSTNAME" >> $GITHUB_OUTPUT
+        echo "REPO_NAME=$REPO_NAME" >> $GITHUB_OUTPUT
+    - name: Print Env
+      run: |
+        echo "deploy-app starting: version_tag: ${{ inputs.version_tag }} to environment: ${{ inputs.environment }}, TARGET_HOSTNAME: ${{ steps.setup_env.outputs.TARGET_HOSTNAME }}, REPO_NAME: ${{ steps.setup_env.outputs.REPO_NAME }}"
+    - name: Setup kubectl
+      uses: azure/setup-kubectl@v3.0
+    - name: Setup Helm
+      uses: azure/setup-helm@v3
+    - name: Configure kubectl environment
+      env:
+        env_name: ${{ inputs.environment }}
+        KUBECONFIG_DATA: ${{ secrets[format('KUBECONFIG_{0}', inputs.environment)] }}
+      run: |
+        echo "${KUBECONFIG_DATA}"|wc -c
+        echo "${KUBECONFIG_DATA}" | base64 --decode > "${KUBECONFIG}"
+    - name: Helm listing
+      run: |
+        helm repo add evinova_nexus ${HELM_REPO_URL} --username ${HELM_USER} --password ${HELM_PASSWORD}
+          helm search repo evinova_nexus/
+          helm ls
+    - name: Helm Template
+      run: |
+        helm template \
+        --set ingress.enabled=true \
+        --set image.tag='${{ inputs.version_tag }}' \
+        --set "ingress.hosts[0].host"='${{ steps.setup_env.outputs.TARGET_HOSTNAME }}' \
+        --set ingress.annotations."alb\.ingress\.kubernetes\.io/certificate-arn"='${{ env.CERTIFICATE_ARN }}' \
+        --set ingress.annotations."alb\.ingress\.kubernetes\.io/wafv2-acl-arn"='${{ env.WAF_ARN }}' \
+        --set ingress.annotations."alb\.ingress\.kubernetes\.io/auth-idp-cognito"=$(echo '${{ env.COGNITO_AUTH_IDP }}' | sed 's/\([{,}]\)/\\\1/g') \
+        evinova_nexus/${{ steps.setup_env.outputs.REPO_NAME }} 
+    - name: Helm upgrade
+      run: |
+        helm upgrade --install --wait --namespace evinova \
+        --set ingress.enabled=true \
+        --set image.tag='${{ inputs.version_tag }}' \
+        --set "ingress.hosts[0].host"='${{ steps.setup_env.outputs.TARGET_HOSTNAME }}' \
+        --set ingress.annotations."alb\.ingress\.kubernetes\.io/certificate-arn"='${{ env.CERTIFICATE_ARN }}' \
+        --set ingress.annotations."alb\.ingress\.kubernetes\.io/wafv2-acl-arn"='${{ env.WAF_ARN }}' \
+        --set ingress.annotations."alb\.ingress\.kubernetes\.io/auth-idp-cognito"=$(echo '${{ env.COGNITO_AUTH_IDP }}' | sed 's/\([{,}]\)/\\\1/g') \
+        ${{ steps.setup_env.outputs.REPO_NAME }} evinova_nexus/${{ steps.setup_env.outputs.REPO_NAME }} 
+    - name: List pods
+      run: |
+        kubectl get pods
+    - name: Get version from all pods
+      run: |
+        kubectl get pods -o jsonpath="{.items[*].spec.containers[*].image}" |tr -s '[[:space:]]' '\n'
+

@@ -1,0 +1,28 @@
+name: CfCT Pipeline Action Stage
+description: |
+  Process the commands required in the CfCt pipeline stages based on the incoming stage
+inputs:
+  stage:
+    required: true
+  loglevel:
+    required: true
+  waittime:
+    required: true
+  state_machine_arn:
+    required: true
+  artifacts3:
+    required: true
+  KMSKeyArn:
+    required: true
+  bool_values:
+    required: true
+  none_values:
+    required: true
+runs:
+  using: "composite"
+  steps:
+    - name: Execute State Machine
+      shell: bash 
+      run: |
+        cd deployment/custom_control_tower_configuration/
+        bash execute_stage_scripts.sh ${{ inputs.stage }} ${{ inputs.loglevel }} ${{ inputs.waittime }} ${{ inputs.state_machine_arn }} ${{ inputs.artifacts3 }} ${{ inputs.kmskey }} ${{ inputs.bool_values }} ${{ inputs.none_values }}

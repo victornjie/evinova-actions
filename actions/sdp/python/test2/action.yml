@@ -1,0 +1,30 @@
+name: Format and tests for cei-tool
+
+
+runs:
+  using: composite
+
+  steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Install dependencies
+      shell:
+      run:  pipx install poetry
+
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v4
+      with:
+          python-version: ${{ env.python-version }}
+          cache: "poetry"
+
+    - name: Install dependencies
+      shell:
+      run: |
+        poetry install --without extra
+
+    - name: Run format and test
+      shell:
+      run: |
+        poetry run poe format_check
+        poetry run poe test   

@@ -1,0 +1,95 @@
+name: Test OneMerlin UI
+
+
+inputs:
+  environment:
+    required: true
+    type: string
+
+runs:
+  using: composite
+
+  steps:
+      - name: checkout
+        uses: actions/checkout@v3
+
+      - name: Set up Node
+        uses: actions/setup-node@v3
+        with:
+          node-version: ${{ env.node-version }}
+      #          cache: 'npm'
+      #          cache-dependency-path: '**/package-lock.json'
+
+      #      - name: Cache Node modules
+      #        id: cache-node-modules
+      #        uses: actions/cache@v3
+      #        env:
+      #          cache-name: cache-node-modules
+      #        with:
+      #          path: node_modules
+      #          key: omp-ui-${{ runner.os }}-build-${{ env.cache-name }}-${{ hashFiles('**/package-lock.json') }}
+      #          restore-keys: |
+      #            omp-ui-${{ runner.os }}-build-${{ env.cache-name }}-
+      #            omp-ui-${{ runner.os }}-build-
+      #            omp-ui-${{ runner.os }}-
+
+      - name: Install Dependencies
+        # if:
+        #   steps.cache-node-modules.outputs.cache-hit != 'true'
+        shell:
+        run: |
+          tee -a .npmrc <<EOF
+
+          //artifactory.astrazeneca.com/artifactory/api/npm/:_authToken=${{ env.ARTIFACTORY_IDENTITY_TOKEN }}
+          EOF
+          npm install -q
+
+      - name: Unit Test
+        shell:
+        run: |
+          npm run test:ci
+
+#  sonarqube-test:
+#    name: SonarQube Analysis
+#    runs-on: ubuntu-latest
+#    container:
+#      image: maven:3.8.5-openjdk-17
+#
+#    steps:
+#      - name: Checkout
+#        uses: actions/checkout@v3
+#
+#      - name: Cache Maven
+#        uses: actions/cache@v2
+#        with:
+#          path: ~/.m2/repository
+#          key: ${{ runner.os }}-maven-${{ hashFiles('**/pom.xml') }}
+#          restore-keys: |
+#            ${{ runner.os }}-maven-
+#
+#      - name: SonarQube Scan
+#        uses: sonarsource/sonarqube-scan-action@master
+#        with:
+#          projectBaseDir: app/src/main
+#          args: >
+#            -Dsonar.projectKey=com.astrazeneca.com:omp
+#            -Dmaven.test.failure.ignore=true
+#            -Dsonar.login=${{ secrets.SONAR_TOKEN }}
+#            -Dsonar.exclusions=app/src/test/**
+#            -Dsonar.java.binaries=../../target/classes
+#            -Dsonar.coverage.jacoco.xmlReportPaths=../../target/site/jacoco/jacoco.xml
+#
+#      - name: SonarQube Quality Gate check
+#        uses: sonarsource/sonarqube-quality-gate-action@master
+#        timeout-minutes: 5
+#        with:
+#          scanMetadataReportFile: app/src/main/.scannerwork/report-task.txt
+#        env:
+#          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+#        ### SonarQube - QualityGate Check Action ###
+
+
+#      - shell: bash
+#        run: |
+#          export TESTCONTAINERS_RYUK_DISABLED=true
+#          mvn verify sonar:sonar -Dsonar.login=${SONAR_LOGIN} -DskipTests

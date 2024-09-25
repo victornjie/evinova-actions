@@ -1,0 +1,52 @@
+name: Automate Test
+
+
+inputs:
+  environment:
+    required: true
+    type: string
+
+runs:
+  using: composite
+
+  steps:
+    - name: Checkout
+      uses: actions/checkout@v3
+
+    - name: Set up Node
+      uses: actions/setup-node@v3
+      with:
+        node-version: '18'
+        cache: 'npm'
+        cache-dependency-path: '**/package-lock.json'
+
+    - name: Install Dependencies
+      shell:
+      run: |
+        tee -a .npmrc <<EOF
+        
+        //artifactory.astrazeneca.com/artifactory/api/npm/:_authToken=${{ env.ARTIFACTORY_IDENTITY_TOKEN }}
+        EOF
+        npm install -q
+
+    - name: Run Automation Tests
+      env:
+        APP_URL: ${{ env.FULL_HOST_URL }}
+        AZURE_AUTOMATION_EMAIL: ${{ env.AZURE_AUTOMATION_EMAIL }}
+        AZURE_AUTOMATION_PASSWORD: ${{ env.AZURE_AUTOMATION_PASSWORD }}
+        AZURE_ALT_AUTOMATION_EMAIL: ${{ env.AZURE_ALT_AUTOMATION_EMAIL }}
+        AZURE_ALT_AUTOMATION_PASSWORD: ${{ env.AZURE_ALT_AUTOMATION_PASSWORD }}
+      shell:
+      run: |
+        export APP_URL=$APP_URL
+        export AZURE_AUTOMATION_EMAIL=$AZURE_AUTOMATION_EMAIL
+        export AZURE_AUTOMATION_PASSWORD=$AZURE_AUTOMATION_PASSWORD
+        export AZURE_ALT_AUTOMATION_EMAIL=$AZURE_ALT_AUTOMATION_EMAIL
+        export AZURE_ALT_AUTOMATION_PASSWORD=$AZURE_ALT_AUTOMATION_PASSWORD
+        npm run e2e
+  #
+  #      - name: Upload Artifact
+  #        uses: actions/upload-artifact@v3
+  #        with:
+  #          name: ${{ inputs.package }}
+  #          path: ${{ inputs.package }}

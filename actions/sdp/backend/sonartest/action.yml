@@ -1,0 +1,21 @@
+name: Sonar Test Merlin API
+
+
+runs:
+  using: composite
+
+  steps:
+    - name: Checkout
+      uses: actions/checkout@v3
+
+    - name: Cache Maven
+      uses: actions/cache@v2
+      with:
+        path: ~/.m2/repository
+        key: ${{ runner.os }}-maven-${{ hashFiles('**/pom.xml') }}
+        restore-keys: |
+          ${{ runner.os }}-maven-
+
+    - name: Sonarqube Analysis with Maven
+      shell:
+      run: mvn package sonar:sonar -Dsonar.host.url=${{env.SONAR_HOST_URL}} -Dsonar.projectKey=com.astrazeneca.omp:omp -Dsonar.login=${{env.SONAR_TOKEN}} --settings settings.xml

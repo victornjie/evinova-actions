@@ -1,0 +1,16 @@
+name: Perform CDK Synth Command
+description: |
+  Process the synth command for CDK applications
+inputs:
+  cmd_args:
+    description: Any additional arguments that need to be passed to the CDK Deploy command.
+    default: ""
+  stack_names:
+    description: Enumerate the stack names that need to be deployed as part of this action. Default value is all.
+    default: '--all'
+runs:
+  using: "composite"
+  steps:
+    - name: Synth
+      run: npx cdk synth
+      shell: bash

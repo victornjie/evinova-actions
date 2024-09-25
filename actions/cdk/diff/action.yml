@@ -1,0 +1,43 @@
+name: Diff CDK App
+description: Display a diff between desired state of CDK app and current state of Cloudformation Stack
+inputs:
+  account_id:
+    required: true
+  region:
+    required: true
+  deploy_role_name:
+    default: GithubActionsRole
+  setup_project:
+    default: true
+  cmd_prefix:
+    default: ""
+  cmd_args:
+    default: ""
+  stack_names:
+    default: "'*'"
+  cicd_tools_path:
+    default: "evinova/evinova-actions"
+  cicd_tools_version:
+    default: "feature/custom-actions"
+
+runs:
+  using: "composite"
+  steps:
+    - if: inputs.setup_project == 'true'
+      uses: actions/checkout@v3
+    - if: inputs.setup_project == 'true'
+      uses: actions/setup-node@v4
+    - if: inputs.setup_project == 'true'
+      name: Setup CDK Project
+      run: |
+        npm install
+        npm run build
+      shell: bash
+    - uses: evinova/evinova-actions/actions/aws/assume_role@main
+      with:
+        account_id: ${{ inputs.account_id }}
+        region: ${{ inputs.region }}
+        role_name: ${{ inputs.deploy_role_name }}
+    - name: Diff
+      run: npx cdk diff ${{ inputs.stack_names }} 2>&1 | tee cdk.diff 
+      shell: bash

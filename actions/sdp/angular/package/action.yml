@@ -1,0 +1,63 @@
+name: Build Merlin UI
+
+
+inputs:
+  environment:
+   required: true
+   type: string
+  tag:
+    required: true
+    type: string
+  package:
+    required: true
+    type: string
+
+runs:
+  using: composite
+
+  steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+
+      - name: Set up Node
+        uses: actions/setup-node@v3
+        with:
+          node-version: ${{ env.node-version }}
+          cache: 'npm'
+          cache-dependency-path: '**/package-lock.json'
+
+      - name: Build Artifact
+        shell:
+        run: |
+          version=${{ inputs.tag }}
+          tag=${{ inputs.tag }}
+          env_prefix=$(echo ${{ inputs.environment }} | awk '{print tolower($0)}')
+          echo "ENV PREFIX => $env_prefix"
+          if [[ $env_prefix == 'ppt' ]]; then
+            env_prefix=preprod; # Set PPT -> PREPROD
+          fi
+          title="Merlin $version"
+          analytics_host="web-analytic-$env_prefix.merlin.astrazeneca.com"
+          echo "Environment => $env_prefix"
+          echo "Version => $version"
+          echo "Tag => $tag"
+          echo "Title => $title"
+          sed -i "s|VERSION|$version|g" src/environments/environment.$env_prefix.ts
+          sed -i "s/TITLE/$title/g" src/environments/environment.$env_prefix.ts
+          sed -i "s/ANALYTICS_HOST/$analytics_host/g" src/environments/environment.$env_prefix.ts
+          repository= ${{ env.REPOSITORY}}
+          echo "repository => $repository"
+          
+          tee -a .npmrc <<EOF
+          //artifactory.astrazeneca.com/artifactory/api/npm/:_authToken=${{ env.ARTIFACTORY_IDENTITY_TOKEN }}
+          EOF
+        
+          npm install -q --force
+          npm run build:$env_prefix
+          tar czvf ${{ inputs.package }} dist
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: ${{ inputs.package }}
+          path: ${{ inputs.package }}

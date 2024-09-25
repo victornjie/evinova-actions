@@ -1,0 +1,41 @@
+name: Build package Backend API
+
+inputs:
+  version:
+    required: true
+    type: string
+  package:
+    required: true
+    type: string
+
+runs:
+  using: composite
+  steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+
+
+
+      - name: Cache Maven
+        uses: actions/cache@v2
+        with:
+          path: ~/.m2/repository
+          key: ${{ runner.os }}-maven-${{ hashFiles('**/pom.xml') }}
+          restore-keys: |
+            ${{ runner.os }}-maven-
+
+      - name: Clean & Package
+        shell: bash
+        run: |
+          export TESTCONTAINERS_RYUK_DISABLED=true
+          mvn clean package -DskipTests
+
+      - name: Display files
+        shell:
+        run: ls -R
+
+      - name: Upload package jar file
+        uses: actions/upload-artifact@v3.1.2
+        with:
+          name: ${{ inputs.package }}
+          path: target/app.jar

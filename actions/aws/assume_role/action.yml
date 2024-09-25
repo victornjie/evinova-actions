@@ -1,0 +1,24 @@
+name: AWS Assume Role
+description: |
+  Assumes a pre-configured role in an AWS account.
+  Role must be configured with the appropriate trust policy to allow the repository/branch to assume it.
+  Refer to the following docs for more information: https://aws.amazon.com/blogs/security/use-iam-roles-to-connect-github-actions-to-actions-in-aws/
+inputs:
+  account_id:
+    required: true
+  region:
+    required: true
+  session_name:
+    default: GithubActions-${{ github.run_id }}-${{ github.run_attempt }}
+  role_name:
+    default: GithubActionsRole
+    required: true
+runs:
+  using: "composite"
+  steps:
+    - name: Assume Role
+      uses: aws-actions/configure-aws-credentials@v1.7.0
+      with:
+        role-to-assume: arn:aws:iam::${{ inputs.account_id }}:role/${{ inputs.role_name }}
+        role-session-name: ${{ inputs.session_name }}
+        aws-region: ${{ inputs.region }}

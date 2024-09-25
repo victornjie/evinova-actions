@@ -1,0 +1,199 @@
+# Reusable workflow that should be used for 
+# building a release of your project.
+name: reusable-build-release
+run-name: 'reusable-build-release: ${{ github.ref }}'
+
+on:
+  workflow_call:
+    inputs:
+      version_type:
+        description: 'Release Type to Create (auto, patch, minor, or major)'
+        required: true
+        type: string
+      deploy_to_dev:
+        description: 'Deploy to DEV on completion?'
+        required: true
+        default: true
+        type: boolean
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    env:
+      DOCKER_REPO_PREFIX: 719900980949.dkr.ecr.eu-west-1.amazonaws.com
+      AWS_DEFAULT_REGION: eu-west-1
+      HELM_REPO_URL: https://nexus.dev.seuit.astrazeneca.com/repository/helm
+      HELM_USER: ${{ vars.HELM_USER }}
+      HELM_PASSWORD: ${{ secrets.HELM_PASSWORD }}
+    outputs:
+      VERSION: ${{ steps.version.outputs.VERSION }}
+    steps:
+    - name: Setup
+      run: |
+        echo "Group is: $${ github.repository }}/${{ github.workflow }}/${{ github.ref }}"
+    - name: Checkout
+      uses: actions/checkout@v4
+      with:
+        token: ${{ secrets.ACTIONS_WORKFLOW_COMMIT_AUTH_TOKEN }}
+        fetch-depth: 0 # get all previous tags for auto-increment to work correctly
+    - name: Check for required config
+      id: checkrequired
+      run: |
+        NEEDS_FORTAWESOME_PKGS=$((grep -c '@fortawesome/' ./package.json 2>/dev/null || echo 0 || true)|head -1)
+        NEEDS_EVINOVA_PKGS=$((grep -c '@evinova/' ./package.json 2>/dev/null || echo 0 || true)|head -1)
+        NEEDS_JAVA_MVN=$((grep -c 'version' ./pom.xml 2>/dev/null || echo 0 || true) |head -1)
+        NEEDS_DOCKER_PUSH=$((grep -c '^CMD' ./Dockerfile 2>/dev/null || echo 0 || true) |head -1)
+        NEEDS_HELM_PUSH=$((grep -c 'version' ./helm/Chart.yaml 2>/dev/null || echo 0 || true) |head -1)
+        NEEDS_PUBLISH=$((grep -c 'release:publish' ./package.json 2>/dev/null || echo 0 || true) |head -1)
+        echo "NEEDS_FORTAWESOME_PKGS=$NEEDS_FORTAWESOME_PKGS" >> $GITHUB_OUTPUT
+        echo "NEEDS_EVINOVA_PKGS=$NEEDS_EVINOVA_PKGS" >> $GITHUB_OUTPUT
+        echo "NEEDS_JAVA_MVN=$NEEDS_JAVA_MVN" >> $GITHUB_OUTPUT
+        echo "NEEDS_DOCKER_PUSH=$NEEDS_DOCKER_PUSH" >> $GITHUB_OUTPUT
+        echo "NEEDS_HELM_PUSH=$NEEDS_HELM_PUSH" >> $GITHUB_OUTPUT
+        echo "NEEDS_PUBLISH=$NEEDS_PUBLISH" >> $GITHUB_OUTPUT
+    - name: Setup Node / Yarn
+      uses: actions/setup-node@v4
+      with:
+        node-version: 'lts/Hydrogen'
+        cache: 'yarn'
+    - name: Configure Git
+      run: |
+        git config --global user.email "ci_activity@noreply.evinova.com"
+        git config --global user.name "GitHub Actions Release Workflow"
+    - name: Configure npm fortawesome
+      if: ${{ steps.checkrequired.outputs.NEEDS_FORTAWESOME_PKGS > 0 }}
+      run: |
+        echo "@fortawesome:registry=https://npm.fontawesome.com/" >> ./.npmrc
+        echo "//npm.fontawesome.com/:_authToken=${{ secrets.NPM_PKGS_FONTAWESOME_TOKEN }}" >> ./.npmrc
+    - name: Configure npm evinova
+      if: ${{ steps.checkrequired.outputs.NEEDS_EVINOVA_PKGS > 0 }}
+      run: |
+        echo "@evinova:registry=https://npm.pkg.github.com" >> ./.npmrc
+        echo "//npm.pkg.github.com/:_authToken=${{ secrets.NPM_PKGS_EVINOVA_TOKEN }}" >> ./.npmrc
+#############################################################################
+# below is only run for Java projects
+    - name: Setup Java
+      if: ${{ steps.checkrequired.outputs.NEEDS_JAVA_MVN > 0 }}
+      uses: actions/setup-java@v3
+      with:
+        distribution: 'zulu'
+        java-version: '17'
+        server-id: nexus
+    - name: Java Dependency Hash
+      if: ${{ steps.checkrequired.outputs.NEEDS_JAVA_MVN > 0 }}
+      id: maven_dependency_hash
+      run: |
+        DEPENDENCY_HASH=$(./mvnw dependency:list | grep "\[INFO\]    [^\(]" |awk '{print $2}' | md5sum | awk '{print $1}')
+        echo "DEPENDENCY_HASH=$DEPENDENCY_HASH"
+        echo "DEPENDENCY_HASH=$DEPENDENCY_HASH" >> $GITHUB_OUTPUT
+    - name: Get Java Maven Local Repository
+      if: ${{ steps.checkrequired.outputs.NEEDS_JAVA_MVN > 0 }}
+      id: maven_repo_location
+      run: |
+        MVN_REPO_LOCATION=$(./mvnw help:evaluate -Dexpression=settings.localRepository -q -DforceStdout)
+        echo "MVN_REPO_LOCATION=$MVN_REPO_LOCATION"
+        echo "MVN_REPO_LOCATION=$MVN_REPO_LOCATION" >> $GITHUB_OUTPUT
+    - name: Restore Cached Java Maven Dependencies
+      if: ${{ steps.checkrequired.outputs.NEEDS_JAVA_MVN > 0 }}
+      id: restore-cache
+      uses: actions/cache/restore@v3
+      with:
+        path: ${{ steps.maven_repo_location.outputs.MVN_REPO_LOCATION }}
+        key: ${{ runner.os }}-maven-${{ steps.maven_dependency_hash.outputs.DEPENDENCY_HASH }}
+    - name: Cache Java Maven Dependencies
+      if: ${{ steps.checkrequired.outputs.NEEDS_JAVA_MVN > 0 }}
+      id: cache-maven-deps
+      uses: actions/cache/save@v3
+      with:
+        path: ${{ steps.maven_repo_location.outputs.MVN_REPO_LOCATION }}
+        key: ${{ runner.os }}-maven-${{ steps.maven_dependency_hash.outputs.DEPENDENCY_HASH }}
+#############################################################################
+# all projects need to have a ./package.json and `yarn package` script
+# that does a full lint, build, test, and package step
+    - name: Install yarn dependencies
+      run: |
+        yarn install --frozen-lockfile
+# Use the commit log history and bump the version number based on 
+# semantic versioning and conventional commits specifications
+    - name: Run version increment
+      run: |
+        extra_args=$(if [[ "${{ inputs.version_type }}" != "auto" ]]; then echo "--release-as ${{ inputs.version_type }}"; else echo ""; fi)
+        npx commit-and-tag-version --no-verify ${extra_args}
+    - name: Get version
+      id: version
+      run: |
+        VERSION=$(yarn --silent app:version)
+        echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
+    - name: Build, Test & Package
+      run: |
+        yarn package
+# push docker image to docker repo in Amazon ECR
+    - name: Configure AWS
+      if: ${{ steps.checkrequired.outputs.NEEDS_DOCKER_PUSH > 0 }}
+      uses: aws-actions/configure-aws-credentials@v1
+      with:
+        aws-access-key-id: ${{ vars.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: eu-west-1
+    - name: Login to Amazon ECR
+      if: ${{ steps.checkrequired.outputs.NEEDS_DOCKER_PUSH > 0 }}
+      uses: aws-actions/amazon-ecr-login@v1
+    - name: Output identity
+      if: ${{ steps.checkrequired.outputs.NEEDS_DOCKER_PUSH > 0 }}
+      run: |
+        aws sts get-caller-identity
+    - name: Update Helm Version
+      if: ${{ steps.checkrequired.outputs.NEEDS_DOCKER_PUSH > 0 }}
+      run: |
+        sed -i s/VERSION/${{ steps.version.outputs.VERSION }}/g helm/Chart.yaml
+        cat helm/Chart.yaml
+    - name: Docker Build and Push
+      if: ${{ steps.checkrequired.outputs.NEEDS_DOCKER_PUSH > 0 }}
+      run: |
+        repository_name=$(echo ${{ github.repository }}|sed 's,.*/\(.*\),\1,g')
+        tag=${DOCKER_REPO_PREFIX}/${repository_name}:${{ steps.version.outputs.VERSION }}
+        docker build -t $tag .
+        docker push $tag
+# push helm charts to helm nexus repo
+    - name: Install Helm Nexus plugins
+      if: ${{ steps.checkrequired.outputs.NEEDS_HELM_PUSH > 0 }}
+      run: |
+        helm plugin install --version master https://github.com/sonatype-nexus-community/helm-nexus-push.git
+    - name: Add Helm Repo
+      if: ${{ steps.checkrequired.outputs.NEEDS_HELM_PUSH > 0 }}
+      run: |
+        helm repo add evinova_nexus ${HELM_REPO_URL} --username ${HELM_USER} --password ${HELM_PASSWORD}
+        helm repo list
+        helm search repo evinova_nexus/
+    - name: Push to Helm Repo
+      if: ${{ steps.checkrequired.outputs.NEEDS_HELM_PUSH > 0 }}
+      run: |
+        cd helm
+        echo "push chart"
+        helm nexus-push evinova_nexus ./ -u ${HELM_USER} -p ${HELM_PASSWORD}
+# push the chore(release): VERSION commit and the tag back to git repo
+    - name: Push the commit & tag to base branch
+      run: |
+        echo "Version: ${{ steps.version.outputs.VERSION }}"
+        git push --follow-tags origin
+# publish to release repository
+    - name: Publish to release repository
+      if: ${{ steps.checkrequired.outputs.NEEDS_PUBLISH > 0 }}
+      env: 
+        PUBLISH_AUTH_TOKEN: ${{ secrets.ACTIONS_WORKFLOW_COMMIT_AUTH_TOKEN }}
+      run: |
+        yarn release:publish
+
+  deploy-dev:
+    if: ${{ inputs.deploy_to_dev }}
+    needs: release
+    runs-on: ubuntu-latest
+    steps:
+    - name: Trigger deployment to dev, version ${{ needs.release.outputs.VERSION }}
+      run: |
+        curl --location '${{ github.api_url }}/repos/${{ github.repository }}/actions/workflows/deploy-app.yaml/dispatches' \
+          --header 'Accept: application/vnd.github+json' \
+          --header 'Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}' \
+          --header 'Content-Type: application/json' \
+          --header 'X-GitHub-Api-Version: 2022-11-28' \
+          --data '{"ref":"${{ github.ref_name }}", "inputs":{"version_tag":"${{ needs.release.outputs.VERSION }}","environment":"dev"}}'

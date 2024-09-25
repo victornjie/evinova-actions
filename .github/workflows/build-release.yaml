@@ -1,0 +1,67 @@
+# GitHub actions workflow triggered manually from GitHub Actions website.
+# This workflow validates, tests, packages and tags a services type project
+# using a either an auto-increment or forced, patch, minor or 
+# major semantic version update.
+name: build-release
+run-name: 'build-release: ${{ inputs.version_type }}'
+
+concurrency:
+  group: $${ github.repository }}/${{ github.workflow }}/${{ github.ref }}
+  cancel-in-progress: true
+
+on:
+  workflow_dispatch:
+    inputs:
+      version_type:
+        description: 'Release Type to Create (auto, patch, minor, major)'
+        required: true
+        default: 'auto'
+        type: choice
+        options:
+        - auto
+        - patch
+        - minor
+        - major
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    outputs:
+      VERSION: ${{ steps.version.outputs.VERSION }}
+    steps:
+    - name: Setup
+      run: |
+        echo "Group is: $${ github.repository }}/${{ github.workflow }}/${{ github.ref }}"
+    - name: Checkout
+      uses: actions/checkout@v4
+      with:
+        token: ${{ secrets.ACTIONS_WORKFLOW_COMMIT_AUTH_TOKEN }}
+        fetch-depth: 0 # get all previous tags for auto-increment to work correctly
+    - name: Setup Node / Yarn
+      uses: actions/setup-node@v4
+      with:
+        node-version: 'lts/Hydrogen'
+        cache: 'yarn'
+    - name: Install dependencies
+      run: |
+        yarn install --frozen-lockfile
+    - name: Configure Git
+      run: |
+        git config --global user.email "ci_activity@noreply.astrazeneca.com"
+        git config --global user.name "GitHub Actions Release Workflow"
+    - name: Run version increment
+      run: |
+        extra_args=$(if [[ "${{ inputs.version_type }}" != "auto" ]]; then echo "--release-as ${{ inputs.version_type }}"; else echo ""; fi)
+        npx commit-and-tag-version --no-verify ${extra_args}
+    - name: Get version
+      id: version
+      run: |
+        VERSION=$(yarn --silent app:version)
+        echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
+    - name: Build, Test & Package
+      run: |
+        yarn package
+    - name: Push the commit & tag to base branch
+      run: |
+        echo "Version: ${{ steps.version.outputs.VERSION }}"
+        git push --follow-tags origin

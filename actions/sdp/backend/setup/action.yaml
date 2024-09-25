@@ -1,0 +1,51 @@
+name: Build Backend Reusable Workflow
+description: |
+  Build Backend Reusable Workflow
+inputs:
+  version:
+    required: true
+    type: string
+  package:
+    required: true
+    type: string
+
+runs:
+   using: composite
+   steps:
+    - name: Test
+      shell: bash
+      run: |
+       echo doing deploy for ${{ inputs.version }}
+
+    - name: Checkout
+      uses: actions/checkout@v3
+
+    - name: Configure AWS assume role
+      uses: evinova/evinova-actions/actions/aws/assume_role@main # This apparently also sets up the CLI
+      with:
+        account_id: 719900980949
+        region: eu-west-1
+        role_name: MERLIN-DEV-DeploymentRole
+
+    - name: Login to Amazon ECR
+      id: login-ecr
+      uses: aws-actions/amazon-ecr-login@v1
+
+    - name: Download Artifact
+      uses: actions/download-artifact@v3
+      with:
+        name: ${{ inputs.package }}
+        path: ${{ env.path }}
+
+    - name: Docker push image to Amazon ECR
+      id: build-image
+      env:
+        REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        IMAGE_TAG: ${{ inputs.version }}
+      shell: bash
+      run: |
+          # Build a docker container and
+          # push it to ECR so that it can
+          # be deployed to EKS.
+          docker build -t $REGISTRY/$REPOSITORY:$IMAGE_TAG . --platform=linux/amd64
+          docker push $REGISTRY/$REPOSITORY:$IMAGE_TAG

@@ -1,0 +1,66 @@
+# Reusable workflow that should be used for 
+# deploying a release of your services project.
+name: reusable-deploy-app-service
+run-name: 'reusable-deploy-app-service: ${{ github.ref }}'
+
+on:
+  workflow_call:
+    inputs:
+      version_tag:
+        description: 'Version Tag to Deploy'
+        required: true
+        type: string
+      environment:
+        description: 'Target Environment (dev, sit, ppt, prod)'
+        required: true
+        type: string
+
+jobs:
+  deploy_app:
+    runs-on: ubuntu-latest
+    environment: DEPLOY
+    env:
+      KUBECONFIG: /tmp/env.yaml
+      HELM_REPO_URL: https://nexus.dev.seuit.astrazeneca.com/repository/helm
+      HELM_USER: ${{ vars.HELM_USER }}
+      HELM_PASSWORD: ${{ secrets.HELM_PASSWORD }}
+    steps:
+    - name: Setup
+      id: setup_env
+      env:
+        env_name: ${{ inputs.environment }}
+      run: |
+        REPO_NAME=$(echo ${{ github.repository }}|sed 's,.*/\(.*\),\1,g')
+        echo "REPO_NAME=$REPO_NAME" >> $GITHUB_OUTPUT
+    - name: Print Env
+      run: |
+        echo "deploy-app starting: version_tag: ${{ inputs.version_tag }} to environment: ${{ inputs.environment }}, REPO_NAME: ${{ steps.setup_env.outputs.REPO_NAME }}"
+    - name: Setup kubectl
+      uses: azure/setup-kubectl@v3.0
+    - name: Setup Helm
+      uses: azure/setup-helm@v3
+    - name: Configure kubectl environment
+      env:
+        env_name: ${{ inputs.environment }}
+        KUBECONFIG_DATA: ${{ secrets[format('KUBECONFIG_{0}', inputs.environment)] }}
+      run: |
+        echo "${KUBECONFIG_DATA}"|wc -c
+        echo "${KUBECONFIG_DATA}" | base64 --decode > "${KUBECONFIG}"
+    - name: Helm listing
+      run: |
+        helm repo add evinova_nexus ${HELM_REPO_URL} --username ${HELM_USER} --password ${HELM_PASSWORD}
+          helm search repo evinova_nexus/
+          helm ls
+    - name: Helm Template
+      run: |
+        helm template evinova_nexus/${{ steps.setup_env.outputs.REPO_NAME }}
+    - name: Helm upgrade
+      run: |
+        helm upgrade --install --wait --namespace evinova ${{ steps.setup_env.outputs.REPO_NAME }} evinova_nexus/${{ steps.setup_env.outputs.REPO_NAME }}
+    - name: List pods
+      run: |
+        kubectl get pods
+    - name: Get version from all pods
+      run: |
+        kubectl get pods -o jsonpath="{.items[*].spec.containers[*].image}" |tr -s '[[:space:]]' '\n'
+

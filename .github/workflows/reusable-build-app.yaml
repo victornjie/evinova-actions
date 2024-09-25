@@ -1,0 +1,95 @@
+# Reusable workflow that should be used for 
+# verifying the build of your project.
+# It performs the following: 
+#    - checkout
+#    - yarn install 
+#    - yarn package
+# Refer to the README.md to see detailed usage.
+name: reusable-build-app
+run-name: 'reusable-build-app: ${{ github.ref }}'
+
+on:
+  workflow_call:
+
+jobs:
+  build-app:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Setup
+      run: |
+        echo "Group is: $${ github.repository }}/${{ github.workflow }}/${{ github.ref }}"
+    - name: Checkout
+      uses: actions/checkout@v4
+    - name: Check for required config
+      id: checkrequired
+      run: |
+        NEEDS_FORTAWESOME_PKGS=$((grep -c '@fortawesome/' ./package.json 2>/dev/null || echo 0 || true)|head -1)
+        NEEDS_EVINOVA_PKGS=$((grep -c '@evinova/' ./package.json 2>/dev/null || echo 0 || true)|head -1)
+        NEEDS_JAVA_MVN=$((grep -c 'version' ./pom.xml 2>/dev/null || echo 0 || true) |head -1)
+        echo "NEEDS_FORTAWESOME_PKGS=$NEEDS_FORTAWESOME_PKGS" >> $GITHUB_OUTPUT
+        echo "NEEDS_EVINOVA_PKGS=$NEEDS_EVINOVA_PKGS" >> $GITHUB_OUTPUT
+        echo "NEEDS_JAVA_MVN=$NEEDS_JAVA_MVN" >> $GITHUB_OUTPUT
+    - name: Setup Node / Yarn
+      uses: actions/setup-node@v4
+      with:
+        node-version: 'lts/Hydrogen'
+        cache: 'yarn'
+    - name: Configure npm fortawesome
+      if: ${{ steps.checkrequired.outputs.NEEDS_FORTAWESOME_PKGS > 0 }}
+      run: |
+        echo "@fortawesome:registry=https://npm.fontawesome.com/" >> ./.npmrc
+        echo "//npm.fontawesome.com/:_authToken=${{ secrets.NPM_PKGS_FONTAWESOME_TOKEN }}" >> ./.npmrc
+    - name: Configure npm evinova
+      if: ${{ steps.checkrequired.outputs.NEEDS_EVINOVA_PKGS > 0 }}
+      run: |
+        echo "@evinova:registry=https://npm.pkg.github.com" >> ./.npmrc
+        echo "//npm.pkg.github.com/:_authToken=${{ secrets.NPM_PKGS_EVINOVA_TOKEN }}" >> ./.npmrc
+    - name: Debug .npmrc
+      run: |
+        cat ./.npmrc | base64
+#############################################################################
+# below is only run for Java projects
+    - name: Setup Java
+      if: ${{ steps.checkrequired.outputs.NEEDS_JAVA_MVN > 0 }}
+      uses: actions/setup-java@v3
+      with:
+        distribution: 'zulu'
+        java-version: '17'
+        server-id: nexus
+    - name: Java Dependency Hash
+      if: ${{ steps.checkrequired.outputs.NEEDS_JAVA_MVN > 0 }}
+      id: maven_dependency_hash
+      run: |
+        DEPENDENCY_HASH=$(./mvnw dependency:list | grep "\[INFO\]    [^\(]" |awk '{print $2}' | md5sum | awk '{print $1}')
+        echo "DEPENDENCY_HASH=$DEPENDENCY_HASH"
+        echo "DEPENDENCY_HASH=$DEPENDENCY_HASH" >> $GITHUB_OUTPUT
+    - name: Get Java Maven Local Repository
+      if: ${{ steps.checkrequired.outputs.NEEDS_JAVA_MVN > 0 }}
+      id: maven_repo_location
+      run: |
+        MVN_REPO_LOCATION=$(./mvnw help:evaluate -Dexpression=settings.localRepository -q -DforceStdout)
+        echo "MVN_REPO_LOCATION=$MVN_REPO_LOCATION"
+        echo "MVN_REPO_LOCATION=$MVN_REPO_LOCATION" >> $GITHUB_OUTPUT
+    - name: Restore Cached Java Maven Dependencies
+      if: ${{ steps.checkrequired.outputs.NEEDS_JAVA_MVN > 0 }}
+      id: restore-cache
+      uses: actions/cache/restore@v3
+      with:
+        path: ${{ steps.maven_repo_location.outputs.MVN_REPO_LOCATION }}
+        key: ${{ runner.os }}-maven-${{ steps.maven_dependency_hash.outputs.DEPENDENCY_HASH }}
+    - name: Cache Java Maven Dependencies
+      if: ${{ steps.checkrequired.outputs.NEEDS_JAVA_MVN > 0 }}
+      id: cache-maven-deps
+      uses: actions/cache/save@v3
+      with:
+        path: ${{ steps.maven_repo_location.outputs.MVN_REPO_LOCATION }}
+        key: ${{ runner.os }}-maven-${{ steps.maven_dependency_hash.outputs.DEPENDENCY_HASH }}
+#############################################################################
+# all projects need to have a ./package.json and `yarn package` script
+# that does a full lint, build, test, and package step
+    - name: Install yarn dependencies
+      run: |
+        yarn install --frozen-lockfile
+    - name: Build, Test & Package
+      run: |
+        yarn package

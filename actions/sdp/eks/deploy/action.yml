@@ -1,0 +1,109 @@
+name: Deploy Merlin API
+
+inputs:
+  environment:
+    required: true
+    type: string
+  version:
+    required: true
+    type: string
+  aws_cert:
+    required: false
+    type: string
+  host_url:
+    required: false
+    type: string
+
+
+runs:
+  using: composite
+
+  steps:
+    - name: Checkout
+      uses: actions/checkout@v3
+
+    - name: Set ENV Role name
+      id: rolename
+      shell: bash
+      run: |
+        if [[ $ENV_NAME == "PROD" ]]; then
+          MERLIN_AWS_ACCOUNT_ID="878799800517"
+          MERLIN_AWS_ROLE_NAME="MERLIN-PRD-DeploymentRole"
+        elif [[ $ENV_NAME == "SANDBOX" ]]; then
+          MERLIN_AWS_ACCOUNT_ID="719900980949"
+          MERLIN_AWS_ROLE_NAME="MERLIN-DEV-DeploymentRole"
+        elif [[ $ENV_NAME == "PPT" ]]; then
+          MERLIN_AWS_ACCOUNT_ID="963555395139"
+          MERLIN_AWS_ROLE_NAME="MERLIN-PPD-DeploymentRole"
+        elif [[ $ENV_NAME == "SIT" ]]; then
+          MERLIN_AWS_ACCOUNT_ID="390375757336"
+          MERLIN_AWS_ROLE_NAME="MERLIN-SIT-DeploymentRole"
+        else
+          MERLIN_AWS_ACCOUNT_ID="719900980949"
+          MERLIN_AWS_ROLE_NAME="MERLIN-DEV-DeploymentRole"
+        fi 
+        echo "MERLIN_AWS_ACCOUNT_ID=$MERLIN_AWS_ACCOUNT_ID" >> $GITHUB_OUTPUT
+        echo "MERLIN_AWS_ROLE_NAME=$MERLIN_AWS_ROLE_NAME" >> $GITHUB_OUTPUT
+
+    - name: Configure AWS assume role
+      uses: evinova/evinova-actions/actions/aws/assume_role@main # This apparently also sets up the CLI
+      with:
+        account_id:  ${{ steps.rolename.outputs.MERLIN_AWS_ACCOUNT_ID }}
+        region: eu-west-1
+        role_name: ${{ steps.rolename.outputs.MERLIN_AWS_ROLE_NAME }}
+
+    - name: Release
+      id: release
+      shell: bash
+      env:
+        AWS_CERT: ${{ env.AWS_CERT }}
+        HOST_URL: ${{ env.HOST_URL }}
+      run: |
+        echo "Deploying Environment => $ENV_NAME"
+        
+        # Based upon ENV name, change prefix, namespace and eks name 
+        if [[ $ENV_NAME == "PROD" ]]; then          
+          env_prefix=prod
+          eks_name=clinical-platform-prd
+          eks_namespace=merlin
+        elif [[ $ENV_NAME == "SANDBOX" ]]; then
+          env_prefix=dev
+          eks_name=clinical-platform-dev
+          eks_namespace=merlin-sandbox
+        else # for PPT, SIT, DEV
+          env_prefix=$(echo "$ENV_NAME" | tr '[:upper:]' '[:lower:]')
+          eks_name=clinical-platform-$env_prefix # ex) clinical-platform-ppt, clinical-platform-sit
+          eks_namespace=merlin
+        fi  
+        
+        # Print out variables for check
+        echo "EKS Name => $eks_name"
+        echo "EKS Namespace => $eks_namespace"
+        echo "ENV Prefix => $env_prefix"
+        echo "Version => $VERSION"
+        
+        # Update EKS Config Dynamically based upon ENV
+        aws eks update-kubeconfig --name ${eks_name}
+        kubectl get pods -n ${eks_namespace}
+        ls -lrt
+        # If This is sandbox use different helm folder
+        if [[ $ENV_NAME == "SANDBOX" ]]; then
+          cd helm_sandbox
+        else
+          cd helm
+        fi
+        
+        # Update chart, values accordingly.
+        sed -i "s/WAF/$WAF/g" values.yaml
+        sed -i "s/VERSION/$VERSION/g" Chart.yaml
+        sed -i "s/VERSION/$VERSION/g" values.yaml
+        sed -i "s|CERT|$AWS_CERT|g" values.yaml
+        sed -i "s|HOST|$HOST_URL|g" values.yaml
+        
+        # Execute Helm script based upon namespace (merlin or merlin-sandbox)
+        if [[ $ENV_NAME == "SANDBOX" ]]; then
+          helm upgrade --install "${{env.REPOSITORY}}-sandbox" --namespace ${eks_namespace} --values values.yaml .
+        else
+          helm upgrade --install "${{env.REPOSITORY}}" --namespace ${eks_namespace} --values values.yaml .
+        fi
+        helm ls --namespace ${eks_namespace}
